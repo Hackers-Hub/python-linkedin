@@ -14,10 +14,10 @@ except ImportError:
 
 
 if sys.version_info < (3,):
-    import __builtin__
+    import builtins
 
     def to_utf8(x):
-        return __builtin__.unicode(x)
+        return builtins.str(x)
 
     def to_string(x):
         return str(x)
@@ -44,7 +44,7 @@ def enum(enum_type='enum', base_classes=None, methods=None, **attrs):
         methods = {}
 
     base_classes = base_classes + (object,)
-    for k, v in methods.items():
+    for k, v in list(methods.items()):
         methods[k] = classmethod(v)
 
     attrs['enums'] = attrs.copy()

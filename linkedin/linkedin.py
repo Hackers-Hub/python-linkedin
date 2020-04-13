@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+
 import contextlib
 import hashlib
 import random
@@ -7,7 +7,7 @@ import random
 try:
     from urllib.parse import quote, quote_plus
 except ImportError:
-    from urllib import quote, quote_plus
+    from urllib.parse import quote, quote_plus
 
 import requests
 from requests_oauthlib import OAuth1
@@ -20,25 +20,55 @@ from .utils import enum, to_utf8, raise_for_error, json, StringIO
 __all__ = ['LinkedInAuthentication', 'LinkedInApplication', 'PERMISSIONS']
 
 PERMISSIONS = enum('Permission',
-                   COMPANY_ADMIN='rw_company_admin',
-                   BASIC_PROFILE='r_basicprofile',
-                   FULL_PROFILE='r_fullprofile',
+                   LITE_PROFILE='r_liteprofile',
+                   BASIC_PROFILE='r_basicprofile', 
                    EMAIL_ADDRESS='r_emailaddress',
-                   NETWORK='r_network',
-                   CONTACT_INFO='r_contactinfo',
-                   NETWORK_UPDATES='rw_nus',
-                   GROUPS='rw_groups',
-                   MESSAGES='w_messages')
+                   GET_MEMBERS_DATA='r_member_social',
+                   POST_MEMBERS_DATA='w_member_social',
+                   ORGANIZATION_ADMIN='rw_organization_admin',
+                   POST_ORGANIZATION_DATA='w_organization_social',
+                   GET_ORGANIZATION_DATA='r_organization_social'
+                   )
 
+# PERMISSIONS = enum('Permission',
+#                    BASIC_PROFILE='r_liteprofile',
+#                    FULL_PROFILE='r_fullprofile',
+#                    EMAIL_ADDRESS='r_emailaddress',
+#                    NETWORK='r_network',
+#                    CONTACT_INFO='r_contactinfo',
+#                    NETWORK_UPDATES='rw_nus',
+#                    GROUPS='rw_groups',
+#                    MESSAGES='w_messages',
+#                    GET_MEMBERS_DATA='r_member_social',
+#                    POST_MEMBERS_DATA='w_member_social',
+#                    ORGANIZATION_ADMIN='rw_organization_admin',
+#                    POST_ORGANIZATION_DATA='w_organization_social',
+#                    GET_ORGANIZATION_DATA='r_organization_social',
+#                    SEARCH_ORGANIZATION='r_organization_lookup'
+#                    )
+                   
 ENDPOINTS = enum('LinkedInURL',
-                 PEOPLE='https://api.linkedin.com/v1/people',
-                 PEOPLE_SEARCH='https://api.linkedin.com/v1/people-search',
-                 GROUPS='https://api.linkedin.com/v1/groups',
-                 POSTS='https://api.linkedin.com/v1/posts',
-                 COMPANIES='https://api.linkedin.com/v1/companies',
-                 COMPANY_SEARCH='https://api.linkedin.com/v1/company-search',
-                 JOBS='https://api.linkedin.com/v1/jobs',
-                 JOB_SEARCH='https://api.linkedin.com/v1/job-search')
+                 BASE='https://api.linkedin.com/v2',
+                 PEOPLE='https://api.linkedin.com/v2/people',
+                 PEOPLE_SEARCH='https://api.linkedin.com/v2/people-search',
+                 GROUPS='https://api.linkedin.com/v2/groups',
+                 POSTS='https://api.linkedin.com/v2/posts',
+                 COMPANIES='https://api.linkedin.com/v2/companies',
+                 ORGANIZATIONS='https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&projection=(*,elements*(*,organizationalTarget~(*)))',
+                 COMPANY_SEARCH='https://api.linkedin.com/v2/company-search',
+                 JOBS='https://api.linkedin.com/v2/jobs',
+                 JOB_SEARCH='https://api.linkedin.com/v2/job-search')
+# ORGANIZATIONS='https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&projection=(*,elements*(*,organizationalTarget~(*)))',
+# ENDPOINTS = enum('LinkedInURL',
+#                  PEOPLE='https://api.linkedin.com/v1/people',
+#                  PEOPLE_SEARCH='https://api.linkedin.com/v1/people-search',
+#                  GROUPS='https://api.linkedin.com/v1/groups',
+#                  POSTS='https://api.linkedin.com/v1/posts',
+#                  COMPANIES='https://api.linkedin.com/v1/companies',
+#                  COMPANY_SEARCH='https://api.linkedin.com/v1/company-search',
+#                  JOBS='https://api.linkedin.com/v1/jobs',
+#                  JOB_SEARCH='https://api.linkedin.com/v1/job-search')
+
 
 NETWORK_UPDATES = enum('NetworkUpdate',
                        APPLICATION='APPS',
@@ -76,8 +106,8 @@ class LinkedInAuthentication(object):
     Implements a standard OAuth 2.0 flow that involves redirection for users to
     authorize the application to access account data.
     """
-    AUTHORIZATION_URL = 'https://www.linkedin.com/uas/oauth2/authorization'
-    ACCESS_TOKEN_URL = 'https://www.linkedin.com/uas/oauth2/accessToken'
+    AUTHORIZATION_URL = 'https://www.linkedin.com/oauth/v2/authorization'
+    ACCESS_TOKEN_URL = 'https://www.linkedin.com/oauth/v2/accessToken'
 
     def __init__(self, key, secret, redirect_uri, permissions=None):
         self.key = key
@@ -93,12 +123,12 @@ class LinkedInAuthentication(object):
     def authorization_url(self):
         qd = {'response_type': 'code',
               'client_id': self.key,
-              'scope': (' '.join(self.permissions)).strip(),
+            #   'scope': (' '.join(self.permissions)).strip(),
               'state': self.state or self._make_new_state(),
               'redirect_uri': self.redirect_uri}
         # urlencode uses quote_plus when encoding the query string so,
         # we ought to be encoding the qs by on our own.
-        qsl = ['%s=%s' % (quote(k), quote(v)) for k, v in qd.items()]
+        qsl = ['%s=%s' % (quote(k), quote(v)) for k, v in list(qd.items())]
         return '%s?%s' % (self.AUTHORIZATION_URL, '&'.join(qsl))
 
     @property
@@ -129,7 +159,7 @@ class LinkedInSelector(object):
     def parse(cls, selector):
         with contextlib.closing(StringIO()) as result:
             if type(selector) == dict:
-                for k, v in selector.items():
+                for k, v in list(selector.items()):
                     result.write('%s:(%s)' % (to_utf8(k), cls.parse(v)))
             elif type(selector) in (list, tuple):
                 result.write(','.join(map(cls.parse, selector)))
@@ -150,6 +180,7 @@ class LinkedInApplication(object):
 
     def make_request(self, method, url, data=None, params=None, headers=None,
                      timeout=60):
+        print("make_request {}".format(url))
         if headers is None:
             headers = {'x-li-format': 'json', 'Content-Type': 'application/json'}
         else:
@@ -160,35 +191,66 @@ class LinkedInApplication(object):
         kw = dict(data=data, params=params,
                   headers=headers, timeout=timeout)
 
-        if isinstance(self.authentication, LinkedInDeveloperAuthentication):
-            # Let requests_oauthlib.OAuth1 do *all* of the work here
-            auth = OAuth1(self.authentication.consumer_key, self.authentication.consumer_secret,
-                          self.authentication.user_token, self.authentication.user_secret)
-            kw.update({'auth': auth})
-        else:
-            params.update({'oauth2_access_token': self.authentication.token.access_token})
+        # if isinstance(self.authentication, LinkedInDeveloperAuthentication):
+        #     # Let requests_oauthlib.OAuth1 do *all* of the work here
+        #     auth = OAuth1(self.authentication.consumer_key, self.authentication.consumer_secret,
+        #                   self.authentication.user_token, self.authentication.user_secret)
+        #     kw.update({'auth': auth})
+        # else:
+        params.update({'oauth2_access_token': self.authentication.token.access_token})
 
         return requests.request(method.upper(), url, **kw)
 
+    def make_request_auth2(self, method, url, data=None, params=None, headers=None,
+                     timeout=60):
+        
+        if headers is None:
+            headers = {'x-li-format': 'json', 'Content-Type': 'application/json'}
+        else:
+            headers.update({'x-li-format': 'json', 'Content-Type': 'application/json'})
+
+        if params is None:
+            params = {}
+        headers.update({'Authorization': 'Bearer ' + self.authentication.token.access_token})
+        kw = dict(data=data,
+                  headers=headers, timeout=timeout)
+
+        return requests.request(method.upper(), url, **kw)
+
+    # def get_profile(self, member_id=None, member_url=None, selectors=None,
+    #                 params=None, headers=None):
+    #     if member_id:
+    #         if type(member_id) is list:
+    #             # Batch request, ids as CSV.
+    #             url = '%s::(%s)' % (ENDPOINTS.PEOPLE,
+    #                                 ','.join(member_id))
+    #         else:
+    #             url = '%s/id=%s' % (ENDPOINTS.PEOPLE, str(member_id))
+    #     elif member_url:
+    #         url = '%s/url=%s' % (ENDPOINTS.PEOPLE, quote_plus(member_url))
+    #     else:
+    #         url = '%s/~' % ENDPOINTS.PEOPLE
+    #     if selectors:
+    #         url = '%s:(%s)' % (url, LinkedInSelector.parse(selectors))
+
+    #     response = self.make_request('GET', url, params=params, headers=headers)
+    #     raise_for_error(response)
+    #     return response.json()
+
     def get_profile(self, member_id=None, member_url=None, selectors=None,
                     params=None, headers=None):
-        if member_id:
-            if type(member_id) is list:
-                # Batch request, ids as CSV.
-                url = '%s::(%s)' % (ENDPOINTS.PEOPLE,
-                                    ','.join(member_id))
-            else:
-                url = '%s/id=%s' % (ENDPOINTS.PEOPLE, str(member_id))
-        elif member_url:
-            url = '%s/url=%s' % (ENDPOINTS.PEOPLE, quote_plus(member_url))
-        else:
-            url = '%s/~' % ENDPOINTS.PEOPLE
-        if selectors:
-            url = '%s:(%s)' % (url, LinkedInSelector.parse(selectors))
-
+        connections = 0
+        if selectors is not None and 'num-connections' in selectors:
+            connections_response = self.get_connections(totals_only=True)
+            connections_body = connections_response.get('paging', None)
+            connections = connections_body.get('total', 0)
+        
+        url = '%s/me' % ENDPOINTS.BASE
         response = self.make_request('GET', url, params=params, headers=headers)
         raise_for_error(response)
-        return response.json()
+        json_response = response.json()
+        json_response.update({'numConnections': connections})
+        return json_response
 
     def search_profile(self, selectors=None, params=None, headers=None):
         if selectors:
@@ -202,15 +264,24 @@ class LinkedInApplication(object):
 
     def get_picture_urls(self, member_id=None, member_url=None,
                          params=None, headers=None):
+        # if member_id:
+        #     url = '%s/id=%s/picture-urls::(original)' % (ENDPOINTS.PEOPLE, str(member_id))
+        # elif member_url:
+        #     url = '%s/url=%s/picture-urls::(original)' % (ENDPOINTS.PEOPLE,
+        #                                                   quote_plus(member_url))
+        # else:
+        #     url = '%s/~/picture-urls::(original)' % ENDPOINTS.PEOPLE
         if member_id:
             url = '%s/id=%s/picture-urls::(original)' % (ENDPOINTS.PEOPLE, str(member_id))
         elif member_url:
             url = '%s/url=%s/picture-urls::(original)' % (ENDPOINTS.PEOPLE,
                                                           quote_plus(member_url))
         else:
-            url = '%s/~/picture-urls::(original)' % ENDPOINTS.PEOPLE
+            # url = '%s/~/picture-urls::(original)' % ENDPOINTS.PEOPLE
+            url = '%s/me?projection=(id,firstName,lastName,profilePicture(displayImage~:playableStreams))' % ENDPOINTS.BASE
+            
 
-        response = self.make_request('GET', url, params=params, headers=headers)
+        response = self.make_request_auth2('GET', url, params=params, headers=headers)
         raise_for_error(response)
         return response.json()
 
@@ -317,6 +388,20 @@ class LinkedInApplication(object):
             raise LinkedInError(error.message)
         else:
             return True
+            
+    def get_all_posts(self, subchannel_id, params=None, headers=None):
+            url = '%s/shares?q=owners&owners=urn:li:organization:%s&sharesPerOwner=100&count=25' % (ENDPOINTS.BASE, str(subchannel_id))
+            
+            response = self.make_request('GET', url, params=params, headers=headers)
+            return response.json()  
+
+    def get_all_posts_summary(self, postids, params=None, headers=None):
+            url = '%s/socialActions?ids=urn:li:share:%s' % (ENDPOINTS.BASE, str(postids[0]))
+            for postid in postids[1:]:
+                url += '&ids=urn:li:share:%s' %(str(postid))
+            
+            response = self.make_request('GET', url, params=params, headers=headers)
+            return response.json()   
 
     def comment_post(self, post_id, comment):
         post = {
@@ -340,9 +425,10 @@ class LinkedInApplication(object):
     def get_companies(self, company_ids=None, universal_names=None, selectors=None,
                       params=None, headers=None):
         identifiers = []
-        url = ENDPOINTS.COMPANIES
+        url = ENDPOINTS.ORGANIZATIONS
+        # url = ENDPOINTS.COMPANIES
         if company_ids:
-            identifiers += map(str, company_ids)
+            identifiers += list(map(str, company_ids))
 
         if universal_names:
             identifiers += ['universal-name=%s' % un for un in universal_names]
@@ -353,7 +439,16 @@ class LinkedInApplication(object):
         if selectors:
             url = '%s:(%s)' % (url, LinkedInSelector.parse(selectors))
 
-        response = self.make_request('GET', url, params=params, headers=headers)
+        url = ENDPOINTS.ORGANIZATIONS
+        params={}
+        
+        # headers = {
+        #         'Authorization': 'Bearer AQVJCAPAivJJOVO8w_daATqamE5Hk4WtAzw07ClkG4fnsHimGsmvAfdHnmZ8VjC61XIvd3P5Rj6d-a7AqrMulkBkSSaGaQRXUJpbXl-fD5dDLV00J81Mz0YVKn09GRWQWtQ1wnAhLvnSb-83cCG56xesQUKNS9duzBi8kbku_NXkRRDtIm1IaAOitFkuJFw2burhd4x7CxKYTN_IzZrmGAlGxVYqFNdZMqAhUeyvLrmuCGoJeWNLC6lrVHx-IS1-1y5UKTnio7_ED6QqbhqGvDxx6wvYy83qftyclETTYtbJx7mUaA17RP22Q5KoSGlJiiWfr5Aw-DmmPjKjsf1xSGsMHLPXhA'
+        # }
+        response = self.make_request_auth2('GET', url, params=params, headers=headers)
+        # response = requests.get(url, params=params, headers=headers)
+        print("get companies")
+        print(response._content)
         raise_for_error(response)
         return response.json()
 
